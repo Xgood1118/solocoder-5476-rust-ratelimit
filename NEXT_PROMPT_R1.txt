@@ -1,1 +1,1 @@
-限流深挖三条硬伤：gRPC sidecar 默认 build 里完全不存在，grpc feature 缺席，整段被 cfg 守护，HTTP+gRPC sidecar 只实现一半；Memory store 把 limiter 永久缓存，热加载或 PUT 改 limit 后 store 仍返旧 Arc，新配置被静默丢弃；Query 和 Body 两种 key 源完全失效。检查修复一下。
+限gRPC sidecar 默认 build 里完全不存在，grpc feature 缺席，整段被 cfg 守护，HTTP+gRPC sidecar 只实现一半；Memory store 把 limiter 永久缓存，热加载或 PUT 改 limit 后 store 仍返旧 Arc，新配置被静默丢弃；Query 和 Body 两种 key 源完全失效。检查修复一下。

@@ -34,9 +34,9 @@ tower-http = { version = "0.5", features = ["cors", "trace", "fs"] }
 mime_guess = "2"
 
 [build-dependencies]
-tonic-build = { version = "0.11", optional = true }
+tonic-build = "0.11"
 
 [features]
-default = ["redis-store"]
+default = ["redis-store", "grpc"]
 redis-store = ["dep:redis"]
-grpc = ["dep:tonic", "dep:prost", "dep:tonic-build", "dep:tokio-stream"]
+grpc = ["dep:tonic", "dep:prost", "dep:tokio-stream"]

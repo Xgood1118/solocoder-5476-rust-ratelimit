@@ -3,7 +3,7 @@ use crate::config::templates;
 use crate::config::{Config, Rule, RuleStats};
 use crate::key_extractor::{self, KeyExtractor};
 use axum::body::Body;
-use axum::extract::{Path, Query, State};
+use axum::extract::{Path, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, Uri};
 use axum::response::{IntoResponse, Json, Response};
 use serde::{Deserialize, Serialize};
@@ -14,17 +14,20 @@ use super::AppState;
 
 #[derive(Debug, Deserialize)]
 pub struct CheckRequest {
-    #[serde(default = "default_rule_id")]
+    #[serde(default)]
     pub rule_id: Option<String>,
+    #[serde(default)]
     pub key: Option<String>,
     #[serde(default = "default_count")]
     pub count: Option<u64>,
+    #[serde(default)]
     pub path: Option<String>,
+    #[serde(default)]
     pub ip: Option<String>,
-}
-
-fn default_rule_id() -> Option<String> {
-    None
+    #[serde(default)]
+    pub query: Option<HashMap<String, String>>,
+    #[serde(default)]
+    pub body: Option<serde_json::Value>,
 }
 
 fn default_count() -> Option<u64> {
@@ -40,6 +43,22 @@ pub struct CheckResponse {
     pub retry_after: Option<u64>,
     pub rule_id: String,
     pub key: String,
+}
+
+fn parse_query_string(query: &str) -> HashMap<String, String> {
+    let mut params = HashMap::new();
+    for pair in query.split('&') {
+        let pair = pair.trim();
+        if pair.is_empty() {
+            continue;
+        }
+        if let Some((key, value)) = pair.split_once('=') {
+            params.insert(key.to_string(), value.to_string());
+        } else {
+            params.insert(pair.to_string(), String::new());
+        }
+    }
+    params
 }
 
 pub async fn health() -> impl IntoResponse {
@@ -70,6 +89,7 @@ pub async fn metrics(State(state): State<Arc<AppState>>) -> impl IntoResponse {
 pub async fn check(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
+    uri: Uri,
     Json(req): Json<CheckRequest>,
 ) -> Response {
     let start = std::time::Instant::now();
@@ -88,10 +108,18 @@ pub async fn check(
             .unwrap_or_else(|| "unknown".to_string())
     });
 
-    let path = req.path.clone().unwrap_or_else(|| "/".to_string());
+    let path = req.path.clone().unwrap_or_else(|| uri.path().to_string());
 
-    let query_params: HashMap<String, String> = HashMap::new();
+    let mut query_params = uri.query()
+        .map(|q| parse_query_string(q))
+        .unwrap_or_default();
+    if let Some(extra_query) = &req.query {
+        query_params.extend(extra_query.clone());
+    }
+
     let cookies = key_extractor::parse_cookies(&headers);
+
+    let body_for_extraction = req.body.as_ref();
 
     let (rule, key) = if let Some(rule_id) = &req.rule_id {
         let rule = match config.get_rule(rule_id) {
@@ -108,7 +136,7 @@ pub async fn check(
         let key = if let Some(k) = &req.key {
             k.clone()
         } else {
-            extract_key(&rule.key_extractor, &headers, &query_params, None, &cookies, &ip, &path)
+            extract_key(&rule.key_extractor, &headers, &query_params, body_for_extraction, &cookies, &ip, &path)
                 .unwrap_or_else(|| "default".to_string())
         };
 
@@ -168,7 +196,7 @@ pub async fn check(
                             &m.rule.key_extractor,
                             &headers,
                             &query_params,
-                            None,
+                            body_for_extraction,
                             &cookies,
                             &ip,
                             &path,

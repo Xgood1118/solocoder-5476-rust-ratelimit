@@ -15,6 +15,12 @@ message CheckRequest {
   string rule_id = 1;
   string key = 2;
   uint64 count = 3;
+  map<string, string> headers = 4;
+  map<string, string> query = 5;
+  string body = 6;
+  string ip = 7;
+  string path = 8;
+  map<string, string> cookies = 9;
 }
 
 message CheckResponse {
@@ -22,6 +28,8 @@ message CheckResponse {
   uint64 remaining = 2;
   uint64 reset_at = 3;
   optional uint64 retry_after_ms = 4;
+  string rule_id = 5;
+  string key = 6;
 }
 
 message AlgorithmConfig {

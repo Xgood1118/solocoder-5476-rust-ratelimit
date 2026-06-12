@@ -9,8 +9,31 @@ use async_trait::async_trait;
 use dashmap::DashMap;
 use std::sync::Arc;
 
+struct LimiterEntry {
+    limiter: Arc<dyn crate::algorithm::RateLimiter + Send + Sync>,
+    config_fingerprint: u64,
+}
+
 pub struct MemoryStore {
-    limiters: DashMap<String, Arc<dyn crate::algorithm::RateLimiter + Send + Sync>>,
+    limiters: DashMap<String, LimiterEntry>,
+}
+
+fn config_fingerprint(config: &AlgorithmConfig) -> u64 {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = DefaultHasher::new();
+
+    std::mem::discriminant(&config.algorithm).hash(&mut hasher);
+    config.limit.hash(&mut hasher);
+    config.window_size.as_millis().hash(&mut hasher);
+    config.rate.hash(&mut hasher);
+    config.capacity.hash(&mut hasher);
+    if let Some(wp) = config.warmup_period {
+        wp.as_millis().hash(&mut hasher);
+    }
+
+    hasher.finish()
 }
 
 impl MemoryStore {
@@ -25,9 +48,15 @@ impl MemoryStore {
         rule_id: &str,
         config: &AlgorithmConfig,
     ) -> Arc<dyn crate::algorithm::RateLimiter + Send + Sync> {
-        if let Some(limiter) = self.limiters.get(rule_id) {
-            return limiter.clone();
+        let fp = config_fingerprint(config);
+
+        if let Some(entry) = self.limiters.get(rule_id) {
+            if entry.config_fingerprint == fp {
+                return entry.limiter.clone();
+            }
         }
+
+        self.limiters.remove(rule_id);
 
         let limiter: Arc<dyn crate::algorithm::RateLimiter + Send + Sync> = match config.algorithm {
             AlgorithmType::FixedWindow => {
@@ -41,7 +70,11 @@ impl MemoryStore {
             }
         };
 
-        self.limiters.insert(rule_id.to_string(), limiter.clone());
+        self.limiters.insert(rule_id.to_string(), LimiterEntry {
+            limiter: limiter.clone(),
+            config_fingerprint: fp,
+        });
+
         limiter
     }
 }
