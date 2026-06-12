@@ -1,0 +1,1 @@
+上一轮修的那几个核心问题回归都没炸，但深挖又冒出来两个小漏。删 rule 这条路：config/manager.rs 里 delete_rule 调的是清 limiter 计数的辅助逻辑，但没把 MemoryStore.limiters 里那个 rule_id 对应的 LimiterEntry 也清掉，频繁 create/delete 场景下 DashMap 会无限增长跑挂服务。另一处更小：metrics.rs 里 set_active_rules 函数定义得漂漂亮亮，但全代码搜不到一个调用点，/metrics 端点 ratelimit_active_rules 永远返 0，监控图上看着像服务挂了其实没挂。检查修复一下。
