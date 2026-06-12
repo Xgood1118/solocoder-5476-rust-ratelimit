@@ -1,0 +1,83 @@
+rules:
+  - id: global-default
+    name: 全局限流
+    description: 默认全局限流规则
+    type: global
+    enabled: true
+    priority: 1
+    algorithm:
+      algorithm: fixed_window
+      limit: 1000
+      window_size: 60
+      warmup_period: ~
+      rate: ~
+      capacity: ~
+    key_extractor:
+      source: ip
+      expression: ip
+    path_prefix: ~
+    ip_list: ~
+    graylist_multiplier: ~
+    group: ~
+    start_at: ~
+    end_at: ~
+
+  - id: api-rate-limit
+    name: API接口限流
+    description: 对/api路径下的接口限流
+    type: path_prefix
+    enabled: true
+    priority: 50
+    algorithm:
+      algorithm: sliding_window
+      limit: 100
+      window_size: 60
+      warmup_period: ~
+      rate: ~
+      capacity: ~
+    key_extractor:
+      source: ip
+      expression: ip
+    path_prefix: /api/
+    ip_list: ~
+    graylist_multiplier: ~
+    group: ~
+    start_at: ~
+    end_at: ~
+
+  - id: admin-whitelist
+    name: 管理后台白名单
+    description: 允许内部IP访问管理后台
+    type: ip_whitelist
+    enabled: true
+    priority: 200
+    algorithm:
+      algorithm: fixed_window
+      limit: 100000
+      window_size: 1
+      warmup_period: ~
+      rate: ~
+      capacity: ~
+    key_extractor:
+      source: ip
+      expression: ip
+    path_prefix: ~
+    ip_list:
+      - "127.0.0.1"
+      - "10.0.0.*"
+    graylist_multiplier: ~
+    group: ~
+    start_at: ~
+    end_at: ~
+
+groups:
+  default:
+    enabled: true
+    threshold_multiplier: 1.0
+    description: 默认分组
+
+alert:
+  enabled: false
+  block_threshold: 100
+  window: 300
+  webhooks: []

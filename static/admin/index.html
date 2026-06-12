@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>限流服务管理控制台</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f7fa; color: #333; }
+        .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px 30px; }
+        .header h1 { font-size: 24px; font-weight: 600; }
+        .header p { opacity: 0.8; margin-top: 5px; font-size: 14px; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+        .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
+        .stat-card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+        .stat-card h3 { font-size: 14px; color: #999; margin-bottom: 8px; font-weight: 500; }
+        .stat-card .value { font-size: 28px; font-weight: 700; color: #333; }
+        .stat-card.allowed .value { color: #52c41a; }
+        .stat-card.blocked .value { color: #f5222d; }
+        .stat-card.rules .value { color: #1890ff; }
+        .section { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); margin-bottom: 24px; }
+        .section h2 { font-size: 16px; margin-bottom: 16px; color: #333; display: flex; align-items: center; gap: 8px; }
+        .chart-container { height: 300px; }
+        .rule-list { display: flex; flex-direction: column; gap: 12px; }
+        .rule-item { border: 1px solid #e8e8e8; border-radius: 8px; padding: 16px; transition: all 0.2s; }
+        .rule-item:hover { border-color: #1890ff; box-shadow: 0 2px 8px rgba(24,144,255,0.1); }
+        .rule-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+        .rule-name { font-weight: 600; font-size: 15px; }
+        .rule-id { font-size: 12px; color: #999; font-family: monospace; }
+        .rule-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 500; }
+        .badge-green { background: #f6ffed; color: #52c41a; }
+        .badge-red { background: #fff1f0; color: #f5222d; }
+        .badge-blue { background: #e6f7ff; color: #1890ff; }
+        .rule-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+        .rule-stat { text-align: center; }
+        .rule-stat .num { font-size: 18px; font-weight: 600; color: #333; }
+        .rule-stat .label { font-size: 12px; color: #999; margin-top: 2px; }
+        .btn { padding: 8px 16px; border-radius: 6px; border: none; cursor: pointer; font-size: 14px; transition: all 0.2s; }
+        .btn-primary { background: #1890ff; color: white; }
+        .btn-primary:hover { background: #40a9ff; }
+        .btn-danger { background: #ff4d4f; color: white; }
+        .btn-danger:hover { background: #ff7875; }
+        .btn-default { background: white; color: #333; border: 1px solid #d9d9d9; }
+        .btn-default:hover { border-color: #1890ff; color: #1890ff; }
+        .actions { display: flex; gap: 8px; }
+        .tabs { display: flex; gap: 8px; margin-bottom: 20px; }
+        .tab { padding: 8px 20px; border-radius: 8px; cursor: pointer; background: white; border: 1px solid #e8e8e8; font-size: 14px; }
+        .tab.active { background: #1890ff; color: white; border-color: #1890ff; }
+        .form-group { margin-bottom: 16px; }
+        .form-group label { display: block; margin-bottom: 6px; font-size: 14px; color: #333; font-weight: 500; }
+        .form-group input, .form-group select { width: 100%; padding: 8px 12px; border: 1px solid #d9d9d9; border-radius: 6px; font-size: 14px; }
+        .form-group input:focus, .form-group select:focus { outline: none; border-color: #1890ff; }
+        .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; }
+        .modal-overlay.active { display: flex; }
+        .modal { background: white; border-radius: 12px; padding: 24px; width: 560px; max-width: 90vw; max-height: 80vh; overflow-y: auto; }
+        .modal h3 { font-size: 18px; margin-bottom: 20px; }
+        .modal-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🚦 限流服务管理控制台</h1>
+        <p>实时监控 · 规则管理 · 数据分析</p>
+    </div>
+
+    <div class="container">
+        <div class="stats-grid">
+            <div class="stat-card rules">
+                <h3>活跃规则</h3>
+                <div class="value" id="totalRules">0</div>
+            </div>
+            <div class="stat-card">
+                <h3>总请求数</h3>
+                <div class="value" id="totalCalls">0</div>
+            </div>
+            <div class="stat-card allowed">
+                <h3>通过数</h3>
+                <div class="value" id="allowedCalls">0</div>
+            </div>
+            <div class="stat-card blocked">
+                <h3>被拦截数</h3>
+                <div class="value" id="blockedCalls">0</div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>📊 实时流量监控</h2>
+            <div id="trafficChart" class="chart-container"></div>
+        </div>
+
+        <div class="tabs">
+            <div class="tab active" onclick="switchTab('rules')">规则管理</div>
+            <div class="tab" onclick="switchTab('templates')">规则模板</div>
+            <div class="tab" onclick="switchTab('stats')">统计排行</div>
+        </div>
+
+        <div id="tab-rules" class="tab-content">
+            <div class="section">
+                <h2 style="justify-content: space-between;">
+                    <span>📋 限流规则</span>
+                    <div style="display: flex; gap: 8px;">
+                        <button class="btn btn-default" onclick="exportRules()">导出</button>
+                        <button class="btn btn-default" onclick="importRules()">导入</button>
+                        <button class="btn btn-primary" onclick="showAddModal()">+ 新增规则</button>
+                    </div>
+                </h2>
+                <div class="rule-list" id="ruleList"></div>
+            </div>
+        </div>
+
+        <div id="tab-templates" class="tab-content" style="display: none;">
+            <div class="section">
+                <h2>📑 规则模板</h2>
+                <div class="rule-list" id="templateList"></div>
+            </div>
+        </div>
+
+        <div id="tab-stats" class="tab-content" style="display: none;">
+            <div class="section">
+                <h2>🏆 规则触发频次排行</h2>
+                <div id="rankChart" class="chart-container"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="ruleModal">
+        <div class="modal">
+            <h3 id="modalTitle">新增规则</h3>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>规则 ID</label>
+                    <input type="text" id="ruleId" placeholder="例如: api-limit">
+                </div>
+                <div class="form-group">
+                    <label>规则名称</label>
+                    <input type="text" id="ruleName" placeholder="例如: API 限流">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>算法类型</label>
+                    <select id="algorithmType">
+                        <option value="fixed_window">固定窗口</option>
+                        <option value="sliding_window">滑动窗口</option>
+                        <option value="token_bucket">令牌桶</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>限流阈值</label>
+                    <input type="number" id="limit" value="100">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>窗口大小(秒)</label>
+                    <input type="number" id="windowSize" value="60">
+                </div>
+                <div class="form-group">
+                    <label>优先级</label>
+                    <input type="number" id="priority" value="100">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Key 来源</label>
+                    <select id="keySource">
+                        <option value="ip">IP 地址</option>
+                        <option value="header">Header</option>
+                        <option value="query">Query 参数</option>
+                        <option value="cookie">Cookie</option>
+                        <option value="body">Body JSON</option>
+                        <option value="global">全局</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Key 表达式</label>
+                    <input type="text" id="keyExpression" placeholder="例如: X-User-Id">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>描述</label>
+                <input type="text" id="ruleDescription" placeholder="规则描述">
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-default" onclick="hideModal()">取消</button>
+                <button class="btn btn-primary" onclick="saveRule()">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let trafficChart, rankChart;
+        let trafficData = { times: [], allowed: [], blocked: [] };
+        const MAX_POINTS = 60;
+
+        function initCharts() {
+            trafficChart = echarts.init(document.getElementById('trafficChart'));
+            rankChart = echarts.init(document.getElementById('rankChart'));
+            updateTrafficChart();
+            window.addEventListener('resize', () => {
+                trafficChart.resize();
+                rankChart.resize();
+            });
+        }
+
+        function updateTrafficChart() {
+            const option = {
+                tooltip: { trigger: 'axis' },
+                legend: { data: ['通过', '拦截'] },
+                grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+                xAxis: { type: 'category', boundaryGap: false, data: trafficData.times },
+                yAxis: { type: 'value' },
+                series: [
+                    {
+                        name: '通过',
+                        type: 'line',
+                        smooth: true,
+                        data: trafficData.allowed,
+                        areaStyle: { color: 'rgba(82, 196, 26, 0.2)' },
+                        lineStyle: { color: '#52c41a' },
+                        itemStyle: { color: '#52c41a' }
+                    },
+                    {
+                        name: '拦截',
+                        type: 'line',
+                        smooth: true,
+                        data: trafficData.blocked,
+                        areaStyle: { color: 'rgba(245, 34, 45, 0.2)' },
+                        lineStyle: { color: '#f5222d' },
+                        itemStyle: { color: '#f5222d' }
+                    }
+                ]
+            };
+            trafficChart.setOption(option);
+        }
+
+        function updateRankChart(rules) {
+            const sorted = [...rules].sort((a, b) => b.stats.total_calls - a.stats.total_calls).slice(0, 10);
+            const option = {
+                tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+                grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+                xAxis: { type: 'value' },
+                yAxis: { type: 'category', data: sorted.map(r => r.id).reverse() },
+                series: [{
+                    type: 'bar',
+                    data: sorted.map(r => r.stats.total_calls).reverse(),
+                    itemStyle: {
+                        color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
+                            { offset: 0, color: '#667eea' },
+                            { offset: 1, color: '#764ba2' }
+                        ])
+                    }
+                }]
+            };
+            rankChart.setOption(option);
+        }
+
+        async function loadRules() {
+            try {
+                const res = await fetch('/api/rules');
+                const data = await res.json();
+                renderRules(data.rules);
+                updateStats(data.rules);
+                updateRankChart(data.rules);
+
+                const now = new Date();
+                const timeStr = now.toLocaleTimeString();
+                
+                let allowed = 0, blocked = 0;
+                data.rules.forEach(r => {
+                    allowed += r.stats.allowed_calls;
+                    blocked += r.stats.blocked_calls;
+                });
+
+                trafficData.times.push(timeStr);
+                trafficData.allowed.push(allowed);
+                trafficData.blocked.push(blocked);
+
+                if (trafficData.times.length > MAX_POINTS) {
+                    trafficData.times.shift();
+                    trafficData.allowed.shift();
+                    trafficData.blocked.shift();
+                }
+
+                updateTrafficChart();
+            } catch (e) {
+                console.error('Failed to load rules:', e);
+            }
+        }
+
+        function updateStats(rules) {
+            let total = 0, allowed = 0, blocked = 0;
+            rules.forEach(r => {
+                total += r.stats.total_calls;
+                allowed += r.stats.allowed_calls;
+                blocked += r.stats.blocked_calls;
+            });
+
+            document.getElementById('totalRules').textContent = rules.length;
+            document.getElementById('totalCalls').textContent = total.toLocaleString();
+            document.getElementById('allowedCalls').textContent = allowed.toLocaleString();
+            document.getElementById('blockedCalls').textContent = blocked.toLocaleString();
+        }
+
+        function renderRules(rules) {
+            const container = document.getElementById('ruleList');
+            if (rules.length === 0) {
+                container.innerHTML = '<div style="text-align: center; color: #999; padding: 40px;">暂无规则，点击右上角"新增规则"创建</div>';
+                return;
+            }
+
+            container.innerHTML = rules.map(rule => `
+                <div class="rule-item">
+                    <div class="rule-header">
+                        <div>
+                            <span class="rule-name">${rule.name || rule.id}</span>
+                            <span class="rule-id">${rule.id}</span>
+                        </div>
+                        <div class="actions">
+                            <span class="rule-badge ${rule.enabled ? 'badge-green' : 'badge-red'}">
+                                ${rule.enabled ? '启用' : '禁用'}
+                            </span>
+                            <button class="btn btn-default btn-sm" onclick="editRule('${rule.id}')">编辑</button>
+                            <button class="btn btn-danger btn-sm" onclick="deleteRule('${rule.id}')">删除</button>
+                        </div>
+                    </div>
+                    <div class="rule-stats">
+                        <div class="rule-stat">
+                            <div class="num">${rule.stats.total_calls.toLocaleString()}</div>
+                            <div class="label">总调用</div>
+                        </div>
+                        <div class="rule-stat">
+                            <div class="num" style="color: #52c41a;">${rule.stats.allowed_calls.toLocaleString()}</div>
+                            <div class="label">通过</div>
+                        </div>
+                        <div class="rule-stat">
+                            <div class="num" style="color: #f5222d;">${rule.stats.blocked_calls.toLocaleString()}</div>
+                            <div class="label">拦截</div>
+                        </div>
+                        <div class="rule-stat">
+                            <div class="num" style="color: #1890ff;">${rule.priority}</div>
+                            <div class="label">优先级</div>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function loadTemplates() {
+            try {
+                const res = await fetch('/api/templates');
+                const data = await res.json();
+                renderTemplates(data.templates);
+            } catch (e) {
+                console.error('Failed to load templates:', e);
+            }
+        }
+
+        function renderTemplates(templates) {
+            const container = document.getElementById('templateList');
+            container.innerHTML = templates.map(tpl => `
+                <div class="rule-item">
+                    <div class="rule-header">
+                        <div>
+                            <span class="rule-name">${tpl.name}</span>
+                            <span class="rule-badge badge-blue">${tpl.category}</span>
+                        </div>
+                        <button class="btn btn-primary btn-sm" onclick="useTemplate('${tpl.id}')">使用此模板</button>
+                    </div>
+                    <p style="color: #666; font-size: 13px;">${tpl.description}</p>
+                </div>
+            `).join('');
+        }
+
+        function switchTab(tab) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.style.display = 'none');
+            event.target.classList.add('active');
+            document.getElementById('tab-' + tab).style.display = 'block';
+        }
+
+        function showAddModal() {
+            document.getElementById('modalTitle').textContent = '新增规则';
+            document.getElementById('ruleId').value = '';
+            document.getElementById('ruleName').value = '';
+            document.getElementById('algorithmType').value = 'fixed_window';
+            document.getElementById('limit').value = '100';
+            document.getElementById('windowSize').value = '60';
+            document.getElementById('priority').value = '100';
+            document.getElementById('keySource').value = 'ip';
+            document.getElementById('keyExpression').value = '';
+            document.getElementById('ruleDescription').value = '';
+            document.getElementById('ruleModal').classList.add('active');
+        }
+
+        function hideModal() {
+            document.getElementById('ruleModal').classList.remove('active');
+        }
+
+        async function editRule(id) {
+            try {
+                const res = await fetch('/api/rules/' + id);
+                const rule = await res.json();
+                document.getElementById('modalTitle').textContent = '编辑规则';
+                document.getElementById('ruleId').value = rule.id;
+                document.getElementById('ruleName').value = rule.name || '';
+                document.getElementById('algorithmType').value = rule.algorithm.type;
+                document.getElementById('limit').value = rule.algorithm.limit;
+                document.getElementById('windowSize').value = rule.algorithm.window_size_seconds;
+                document.getElementById('priority').value = rule.priority;
+                document.getElementById('ruleDescription').value = rule.description || '';
+                document.getElementById('ruleModal').classList.add('active');
+            } catch (e) {
+                alert('加载规则失败');
+            }
+        }
+
+        async function saveRule() {
+            const id = document.getElementById('ruleId').value.trim();
+            if (!id) {
+                alert('请输入规则 ID');
+                return;
+            }
+
+            const algoType = document.getElementById('algorithmType').value;
+            const keySource = document.getElementById('keySource').value;
+            const keyExpr = document.getElementById('keyExpression').value || '';
+
+            let keyExtractor;
+            switch (keySource) {
+                case 'ip':
+                    keyExtractor = { source: 'ip', expression: 'ip' };
+                    break;
+                case 'header':
+                    keyExtractor = { source: 'header', expression: keyExpr };
+                    break;
+                case 'query':
+                    keyExtractor = { source: 'query', expression: keyExpr };
+                    break;
+                case 'cookie':
+                    keyExtractor = { source: 'cookie', expression: keyExpr };
+                    break;
+                case 'body':
+                    keyExtractor = { source: 'body', expression: keyExpr };
+                    break;
+                default:
+                    keyExtractor = { source: 'global', expression: 'global' };
+            }
+
+            const rule = {
+                id,
+                name: document.getElementById('ruleName').value || null,
+                description: document.getElementById('ruleDescription').value || null,
+                type: 'global',
+                enabled: true,
+                priority: parseInt(document.getElementById('priority').value),
+                key_extractor: keyExtractor,
+                algorithm: {
+                    algorithm: algoType,
+                    limit: parseInt(document.getElementById('limit').value),
+                    window_size: parseInt(document.getElementById('windowSize').value),
+                    warmup_period: null,
+                    rate: parseInt(document.getElementById('limit').value),
+                    capacity: parseInt(document.getElementById('limit').value)
+                }
+            };
+
+            try {
+                const existing = await fetch('/api/rules/' + id);
+                let res;
+                if (existing.ok) {
+                    res = await fetch('/api/rules/' + id, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(rule)
+                    });
+                } else {
+                    res = await fetch('/api/rules', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(rule)
+                    });
+                }
+
+                if (res.ok) {
+                    hideModal();
+                    loadRules();
+                } else {
+                    alert('保存失败');
+                }
+            } catch (e) {
+                alert('保存失败: ' + e.message);
+            }
+        }
+
+        async function deleteRule(id) {
+            if (!confirm('确定要删除规则 ' + id + ' 吗？')) return;
+            try {
+                const res = await fetch('/api/rules/' + id, { method: 'DELETE' });
+                if (res.ok) {
+                    loadRules();
+                } else {
+                    alert('删除失败');
+                }
+            } catch (e) {
+                alert('删除失败');
+            }
+        }
+
+        async function exportRules() {
+            try {
+                const res = await fetch('/api/rules/export');
+                const data = await res.json();
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'ratelimit-rules.json';
+                a.click();
+                URL.revokeObjectURL(url);
+            } catch (e) {
+                alert('导出失败');
+            }
+        }
+
+        function importRules() {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.json';
+            input.onchange = async (e) => {
+                const file = e.target.files[0];
+                const text = await file.text();
+                try {
+                    const data = JSON.parse(text);
+                    const res = await fetch('/api/rules/import', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ rules: data.rules, overwrite: true })
+                    });
+                    if (res.ok) {
+                        alert('导入成功');
+                        loadRules();
+                    } else {
+                        alert('导入失败');
+                    }
+                } catch (e) {
+                    alert('文件格式错误');
+                }
+            };
+            input.click();
+        }
+
+        function useTemplate(id) {
+            alert('模板 ' + id + ' - 功能完善中，可手动创建规则');
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            initCharts();
+            loadRules();
+            loadTemplates();
+            setInterval(loadRules, 2000);
+        });
+    </script>
+</body>
+</html>

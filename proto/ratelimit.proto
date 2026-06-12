@@ -1,0 +1,84 @@
+syntax = "proto3";
+
+package ratelimit;
+
+service RateLimitService {
+  rpc Check(CheckRequest) returns (CheckResponse);
+  rpc GetRule(GetRuleRequest) returns (Rule);
+  rpc ListRules(ListRulesRequest) returns (ListRulesResponse);
+  rpc CreateRule(CreateRuleRequest) returns (Rule);
+  rpc UpdateRule(UpdateRuleRequest) returns (Rule);
+  rpc DeleteRule(DeleteRuleRequest) returns (DeleteRuleResponse);
+}
+
+message CheckRequest {
+  string rule_id = 1;
+  string key = 2;
+  uint64 count = 3;
+}
+
+message CheckResponse {
+  bool allowed = 1;
+  uint64 remaining = 2;
+  uint64 reset_at = 3;
+  optional uint64 retry_after_ms = 4;
+}
+
+message AlgorithmConfig {
+  string algorithm = 1;
+  uint64 limit = 2;
+  uint64 window_size_seconds = 3;
+  optional uint64 warmup_period_seconds = 4;
+  optional uint64 rate = 5;
+  optional uint64 capacity = 6;
+}
+
+message KeyExtractor {
+  string source = 1;
+  string expression = 2;
+}
+
+message Rule {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  string rule_type = 4;
+  bool enabled = 5;
+  int32 priority = 6;
+  AlgorithmConfig algorithm = 7;
+  KeyExtractor key_extractor = 8;
+  optional string path_prefix = 9;
+  repeated string ip_list = 10;
+  optional double graylist_multiplier = 11;
+  optional string group = 12;
+  optional int64 start_at = 13;
+  optional int64 end_at = 14;
+}
+
+message GetRuleRequest {
+  string id = 1;
+}
+
+message ListRulesRequest {
+}
+
+message ListRulesResponse {
+  repeated Rule rules = 1;
+}
+
+message CreateRuleRequest {
+  Rule rule = 1;
+}
+
+message UpdateRuleRequest {
+  string id = 1;
+  Rule rule = 2;
+}
+
+message DeleteRuleRequest {
+  string id = 1;
+}
+
+message DeleteRuleResponse {
+  bool success = 1;
+}
